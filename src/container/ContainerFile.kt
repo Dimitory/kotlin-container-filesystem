@@ -28,14 +28,13 @@ internal class ContainerFile internal constructor(
 
     fun grow(requestedSize: Int) {
         require(requestedSize >= 0)
-        file.setLength(size + requestedSize)
+        file.setLength(file.length() + requestedSize)
     }
 
-    fun flush() {
-        file.fd.sync()
-    }
+    fun flush() = file.fd.sync()
 
     override fun close() {
+        flush();
         file.close()
     }
 }

@@ -1,13 +1,13 @@
 package metadata
 
-enum class EntryType(val id: Byte) {
+enum class EntityType(val id: Byte) {
     None(0),
     File(1),
     Directory(2);
 
     companion object {
-        fun fromByte(id: Byte): EntryType =
+        fun fromByte(id: Byte): EntityType =
             entries.firstOrNull { it.id == id }
-                ?: error("Unknown EntryType: $id")
+                ?: error("Unknown EntityType: $id")
     }
 }

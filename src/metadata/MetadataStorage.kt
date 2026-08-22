@@ -21,6 +21,14 @@ internal class MetadataStorage(
     private val blocks = mutableListOf<CachedBlock>()
     private val blocksByIndex = mutableMapOf<Long, CachedBlock>()
     public val slotsPerBlock: Int = EntityMetadataBlockCodec.slotsPerBlock(header.blockSize)
+    public val root: EntityMetadata = EntityMetadata(
+        id = ROOT_ID,
+        parentId = ROOT_ID,
+        name = "",
+        type = EntityType.Directory,
+        size = 0L,
+        firstExtentBlock = ContainerLayout.NONE_BLOCK,
+    )
 
     init {
         blocks.clear()
@@ -39,7 +47,7 @@ internal class MetadataStorage(
         }
     }
 
-    fun create(name: String, type: EntryType, parentId: Long = ROOT_ID) : EntryMetadata {
+    fun create(name: String, type: EntityType, parentId: Long = ROOT_ID) : EntityMetadata {
         require(name.isNotBlank())
         require(findByName(parentId, name) == null) {
             "Entry '$name' already exists"
@@ -83,13 +91,13 @@ internal class MetadataStorage(
         )
     }
 
-    fun findById(id: Long): EntryMetadata? {
+    fun findById(id: Long): EntityMetadata? {
         val blockIndex = id / slotsPerBlock
         val slotIndex = (id % slotsPerBlock).toInt()
         return blocksByIndex[blockIndex]?.block?.entries?.getOrNull(slotIndex)
     }
 
-    fun findByName(parentId: Long, name: String): EntryMetadata? {
+    fun findByName(parentId: Long, name: String): EntityMetadata? {
         for ((_, block) in blocks) {
             for (entry in block.entries) {
                 if (entry != null && entry.parentId == parentId && entry.name == name) {
@@ -100,7 +108,7 @@ internal class MetadataStorage(
         return null
     }
 
-    fun list(parentId: Long): Sequence<EntryMetadata> =
+    fun list(parentId: Long): Sequence<EntityMetadata> =
         sequence {
             for ((_, block) in blocks) {
                 for (entry in block.entries) {
@@ -111,7 +119,7 @@ internal class MetadataStorage(
             }
         }
 
-    fun update(metadata: EntryMetadata) {
+    fun update(metadata: EntityMetadata) {
         val blockIndex = metadata.id / slotsPerBlock
         val slotIndex = (metadata.id % slotsPerBlock).toInt()
         val cached = requireNotNull(blocksByIndex[blockIndex])
@@ -135,18 +143,20 @@ internal class MetadataStorage(
         }
     }
 
-    override fun close() {
-        flush()
+    fun findChild(parentId: Long, name: String): EntityMetadata? {
+        return findByName(parentId, name)
     }
+
+    override fun close() = flush()
 
     private fun createInSlot(block: EntityMetadataBlock,
                              blockIndex: Long,
                              slotIndex: Int,
                              parentId: Long,
                              name: String,
-                             type: EntryType) : EntryMetadata
+                             type: EntityType) : EntityMetadata
     {
-        val metadata = EntryMetadata(
+        val metadata = EntityMetadata(
                 id = blockIndex * slotsPerBlock + slotIndex,
                 parentId = parentId,
                 name = name,

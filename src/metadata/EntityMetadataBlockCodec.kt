@@ -1,7 +1,6 @@
 package metadata
 
 import container.ContainerFile
-import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -35,6 +34,18 @@ internal object EntityMetadataBlockCodec {
             .order(ByteOrder.LITTLE_ENDIAN)
             .putLong(value.nextBlock)
 
+        var usedSlots = 0L
+        for (slotIndex in value.entries.indices) {
+            if (value.entries[slotIndex] != null) {
+                usedSlots = usedSlots or (1L shl slotIndex)
+            }
+        }
+        ByteBuffer
+            .wrap(destination)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .position(Long.SIZE_BYTES)
+            .putLong(usedSlots)
+
         for (slotIndex in value.entries.indices) {
             val entry = value.entries[slotIndex] ?: continue
             EntryMetadataCodec.encode(
@@ -51,9 +62,12 @@ internal object EntityMetadataBlockCodec {
                 .wrap(source)
                 .order(ByteOrder.LITTLE_ENDIAN)
         val nextBlock = buffer.long
-        val entries = arrayOfNulls<EntryMetadata>(slotsPerBlock)
+        val usedSlots = buffer.long
+        val entries = arrayOfNulls<EntityMetadata>(slotsPerBlock)
         for (slotIndex in 0..<slotsPerBlock) {
-            entries[slotIndex] = EntryMetadataCodec.decode(source, entryOffset(slotIndex))
+            if ((usedSlots and (1L shl slotIndex)) != 0L) {
+                entries[slotIndex] = EntryMetadataCodec.decode(source, entryOffset(slotIndex))
+            }
         }
         return EntityMetadataBlock(
             nextBlock = nextBlock,

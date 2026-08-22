@@ -37,7 +37,9 @@ public class ContainerFileSystem private constructor(
         }
 
         private fun openExisting(path: Path): ContainerFileSystem {
-            require(Files.exists(path))
+            require(Files.exists(path)) {
+                "Container does not exist: $path"
+            }
             val randomAccessFile = RandomAccessFile(path.toFile(), "rw")
             val header = ContainerHeaderCodec.read(randomAccessFile)
             val containerFile = ContainerFile(randomAccessFile)
@@ -48,7 +50,9 @@ public class ContainerFileSystem private constructor(
         }
 
         private fun createNew(path: Path): ContainerFileSystem {
-            require(!Files.exists(path))
+            require(!Files.exists(path)) {
+                "Container already exists: $path"
+            };
             val randomAccessFile = RandomAccessFile(path.toFile(), "rw")
             val header = ContainerHeader.createDefault(DEFAULT_BLOCK_SIZE)
             val containerFile = ContainerFile(randomAccessFile)
@@ -83,8 +87,12 @@ public class ContainerFileSystem private constructor(
         TODO("Not yet implemented")
     }
 
-    fun createDirectory(path: String) {
-        TODO("Not yet implemented")
+    fun openRead(path: Path): InputStream {
+        val metadata = requireEntry(path)
+        require(metadata.type == EntityType.File) {
+            "Not a file: $path"
+        }
+        return ContainerInputStream(metadata, dataStorage, DataStorage.DEFAULT_BUFFER_SIZE)
     }
 
     fun openRead(path: String): ContainerInputStream {

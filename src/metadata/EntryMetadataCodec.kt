@@ -15,7 +15,7 @@ internal object EntryMetadataCodec {
         Long.SIZE_BYTES +   // size
         Long.SIZE_BYTES     // firstExtentBlock
 
-    fun encode(value: EntryMetadata, destination: ByteArray, offset: Int = 0) {
+    fun encode(value: EntityMetadata, destination: ByteArray, offset: Int = 0) {
         require(offset >= 0)
         require(offset + SERIALIZED_SIZE <= destination.size)
         val nameBytes = value.name.toByteArray(StandardCharsets.UTF_8)
@@ -38,7 +38,7 @@ internal object EntryMetadataCodec {
             .putLong(value.firstExtentBlock)
     }
 
-    fun decode(source: ByteArray, offset: Int = 0): EntryMetadata {
+    fun decode(source: ByteArray, offset: Int = 0): EntityMetadata {
         require(offset >= 0)
         require(offset + SERIALIZED_SIZE <= source.size)
         val buffer = ByteBuffer
@@ -56,11 +56,11 @@ internal object EntryMetadataCodec {
                     Long.SIZE_BYTES +
                     Short.SIZE_BYTES +
                     NAME_MAX_BYTES)
-        val type = EntryType.fromByte(buffer.get())
+        val type = EntityType.fromByte(buffer.get())
         val size = buffer.long
         val firstExtentBlock = buffer.long
 
-        return EntryMetadata(
+        return EntityMetadata(
             id = id,
             parentId = parentId,
             name = String(nameBytes, StandardCharsets.UTF_8),
