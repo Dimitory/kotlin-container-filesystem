@@ -1,7 +1,6 @@
 package allocator
 
 import container.ContainerFile
-import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -36,7 +35,7 @@ internal object AllocationMapPageCodec {
             .wrap(source, 0, source.size)
             .order(ByteOrder.LITTLE_ENDIAN)
         val nextBlock = buffer.long
-        val bitmap = ByteArray(source.size - MAP_HEADER_SIZE);
+        val bitmap = ByteArray(source.size - MAP_HEADER_SIZE)
         buffer.get(bitmap)
         return AllocationMapPage(
             bitmap = bitmap,

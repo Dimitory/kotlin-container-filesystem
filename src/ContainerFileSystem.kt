@@ -21,7 +21,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.name
 
-public class ContainerFileSystem private constructor(
+class ContainerFileSystem private constructor(
     private val file: ContainerFile,
     private val allocator: ContainerAllocator,
     private val metadataStorage: MetadataStorage,
@@ -30,6 +30,7 @@ public class ContainerFileSystem private constructor(
     companion object {
         internal const val DEFAULT_BLOCK_SIZE: Int = 4096
 
+        @Suppress("unused")
         fun open(path: Path, mode: ContainerOpenMode = ContainerOpenMode.OpenOrCreate): ContainerFileSystem {
             return when (mode) {
                 ContainerOpenMode.OpenExisting -> openExisting(path)
@@ -52,14 +53,14 @@ public class ContainerFileSystem private constructor(
             val containerFile = ContainerFile(randomAccessFile)
             val allocator = ContainerAllocator(containerFile, header)
             val metadataStorage = MetadataStorage(allocator, header)
-            val dataStorage = DataStorage(allocator, header);
-            return ContainerFileSystem(containerFile, allocator, metadataStorage, dataStorage);
+            val dataStorage = DataStorage(allocator, header)
+            return ContainerFileSystem(containerFile, allocator, metadataStorage, dataStorage)
         }
 
         private fun createNew(path: Path): ContainerFileSystem {
             require(!Files.exists(path)) {
                 "Container already exists: $path"
-            };
+            }
             val randomAccessFile = RandomAccessFile(path.toFile(), "rw")
             val header = ContainerHeader.createDefault(DEFAULT_BLOCK_SIZE)
             val containerFile = ContainerFile(randomAccessFile)
@@ -85,12 +86,13 @@ public class ContainerFileSystem private constructor(
             )
             val allocator = ContainerAllocator(containerFile, header)
             val metadataStorage = MetadataStorage(allocator, header)
-            val dataStorage = DataStorage(allocator, header);
-            containerFile.flush();
-            return ContainerFileSystem(containerFile, allocator, metadataStorage, dataStorage);
+            val dataStorage = DataStorage(allocator, header)
+            containerFile.flush()
+            return ContainerFileSystem(containerFile, allocator, metadataStorage, dataStorage)
         }
     }
 
+    @Suppress("unused")
     fun openRead(path: Path): InputStream {
         val metadata = requireEntry(path)
         require(metadata.type == EntityType.File) {
@@ -99,7 +101,7 @@ public class ContainerFileSystem private constructor(
         return ContainerInputStream(metadata, dataStorage)
     }
 
-
+    @Suppress("unused")
     fun openWrite(path: Path, openMode: OpenMode = OpenMode.CreateNew): OutputStream {
         val parent = resolveOrCreateParent(path)
         val metadata = metadataStorage.findChild(parent.id, path.name)
@@ -163,7 +165,7 @@ public class ContainerFileSystem private constructor(
         }
     }
 
-
+    @Suppress("unused")
     fun delete(path: Path, recursive: Boolean = false) {
         val metadata = requireEntry(path)
         if (metadata.type == EntityType.Directory) {
@@ -188,6 +190,7 @@ public class ContainerFileSystem private constructor(
         }
     }
 
+    @Suppress("unused")
     fun move(source: Path, destination: Path) {
         val sourceMetadata = requireEntry(source)
         val destinationParent = resolveParent(destination)
@@ -208,10 +211,12 @@ public class ContainerFileSystem private constructor(
         )
     }
 
+    @Suppress("unused")
     fun exists(path: Path): Boolean  {
         return resolve(path) != null
     }
 
+    @Suppress("unused")
     fun list(path: Path): Sequence<EntryInfo> {
         val directory = requireEntry(path)
         require(directory.type == EntityType.Directory) {
@@ -223,10 +228,12 @@ public class ContainerFileSystem private constructor(
             .map(::toEntryInfo)
     }
 
+    @Suppress("unused")
     fun getInfo(path: Path): EntryInfo? {
         return resolve(path)?.let(::toEntryInfo)
     }
 
+    @Suppress("unused")
     fun flush() {
         metadataStorage.flush()
         dataStorage.flush()

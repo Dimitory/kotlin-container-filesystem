@@ -3,7 +3,6 @@ package allocator
 import container.ContainerFile
 import container.ContainerHeader
 import container.ContainerLayout
-import metadata.EntityMetadataBlock
 import kotlin.Int
 
 internal class ContainerAllocator internal constructor(
@@ -11,7 +10,6 @@ internal class ContainerAllocator internal constructor(
     private val header : ContainerHeader,
 ) : AutoCloseable {
 
-    public val bitmapSize: Int = AllocationMapPageCodec.bitmapSize(header.blockSize)
     private val blocksPerMap: Long = AllocationMapPageCodec.blocksPerMap(header.blockSize)
     private val availableBlockCount: Long get() = file.size / header.blockSize
     private val allocationMapPages = mutableListOf<CachedAllocationMapPage>()
@@ -44,7 +42,7 @@ internal class ContainerAllocator internal constructor(
         }
 
         for ((blockIndex, _) in allocationMapPages) {
-            setAllocated(blockIndex, true);
+            setAllocated(blockIndex, true)
         }
         setAllocated(ContainerLayout.FIRST_METADATA_BLOCK, true)
     }
@@ -96,7 +94,7 @@ internal class ContainerAllocator internal constructor(
         for (block in 0..< availableBlockCount) {
             if (isAllocated(block)) {
                 rangeStart = ContainerLayout.NONE_BLOCK
-                rangeLength = 0;
+                rangeLength = 0
                 continue
             }
 
@@ -190,8 +188,8 @@ internal class ContainerAllocator internal constructor(
     fun flush() {
         val buffer = ByteArray(header.blockSize)
         for ((blockIndex, allocationMapPage) in allocationMapPages) {
-            AllocationMapPageCodec.encode(allocationMapPage, buffer);
-            writeBlock(blockIndex, 0, buffer);
+            AllocationMapPageCodec.encode(allocationMapPage, buffer)
+            writeBlock(blockIndex, 0, buffer)
         }
         file.flush()
     }

@@ -13,7 +13,7 @@ class ContainerFileSystemTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private val projectRoot: Path get() = Path.of("").toAbsolutePath().normalize()
+    private val projectRoot: Path get() = Path.of("").normalize()
 
     @Test
     fun writeFilesByChunksAndReopen() {

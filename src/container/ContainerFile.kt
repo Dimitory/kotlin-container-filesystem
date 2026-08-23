@@ -34,7 +34,7 @@ internal class ContainerFile internal constructor(
     fun flush() = file.fd.sync()
 
     override fun close() {
-        flush();
+        flush()
         file.close()
     }
 }
