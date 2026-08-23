@@ -20,8 +20,8 @@ internal class MetadataStorage(
 
     private val blocks = mutableListOf<CachedBlock>()
     private val blocksByIndex = mutableMapOf<Long, CachedBlock>()
-    public val slotsPerBlock: Int = EntityMetadataBlockCodec.slotsPerBlock(header.blockSize)
-    public val root: EntityMetadata = EntityMetadata(
+    val slotsPerBlock: Int = EntityMetadataBlockCodec.slotsPerBlock(header.blockSize)
+    val root: EntityMetadata = EntityMetadata(
         id = ROOT_ID,
         parentId = ROOT_ID,
         name = "",
@@ -89,12 +89,6 @@ internal class MetadataStorage(
             name = name,
             type = type
         )
-    }
-
-    fun findById(id: Long): EntityMetadata? {
-        val blockIndex = id / slotsPerBlock
-        val slotIndex = (id % slotsPerBlock).toInt()
-        return blocksByIndex[blockIndex]?.block?.entries?.getOrNull(slotIndex)
     }
 
     fun findByName(parentId: Long, name: String): EntityMetadata? {

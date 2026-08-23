@@ -199,9 +199,7 @@ class ContainerFileSystem private constructor(
             "Already exists: $destination"
         }
 
-        if (sourceMetadata.type == EntityType.Directory) {
-            // TODO("Check move directory into itself")
-        }
+        // TODO("Check move directory into itself")
 
         metadataStorage.update(
             sourceMetadata.copy(
@@ -250,7 +248,8 @@ class ContainerFileSystem private constructor(
 
     private fun resolveOrCreateParent(path: Path): EntityMetadata {
         var current = metadataStorage.root
-        for (component in path) {
+        val components = path.normalize().filter { it.toString().isNotEmpty() }
+        for (component in components.dropLast(1)) {
             val name = component.toString()
             val next = metadataStorage.findChild(current.id, name)
                 ?: metadataStorage.create(name = name, type = EntityType.Directory, parentId = current.id)
@@ -270,7 +269,8 @@ class ContainerFileSystem private constructor(
 
     private fun resolve(path: Path): EntityMetadata? {
         var current = metadataStorage.root
-        for (component in path) {
+        val components = path.normalize().filter { it.toString().isNotEmpty() }
+        for (component in components) {
             if (current.type != EntityType.Directory)
                 return null
             current = metadataStorage.findChild(current.id, component.toString()) ?: return null
@@ -280,7 +280,8 @@ class ContainerFileSystem private constructor(
 
     private fun resolveParent(path: Path): EntityMetadata {
         var current: EntityMetadata = metadataStorage.root
-        for (component in path) {
+        val components = path.normalize().filter { it.toString().isNotEmpty() }
+        for (component in components.dropLast(1)) {
             val next = metadataStorage.findChild(current.id, component.toString())
             checkNotNull(next) {
                 "Directory does not exist: $component"

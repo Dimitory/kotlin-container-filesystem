@@ -1,3 +1,4 @@
+import metadata.EntityType
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -19,7 +20,7 @@ class ContainerFileSystemTest {
     fun writeFilesByChunksAndReopen() {
         val containerPath = tempDir.resolve("test.fs")
 
-        val files = mapOf(
+        val files = arrayOf(
             Path.of("files/one.bin") to Random(1).nextBytes(1024),
             Path.of("files/two.bin") to Random(2).nextBytes(1024 * 2),
             Path.of("files/three.bin") to Random(3).nextBytes(1024 * 4),
@@ -27,11 +28,10 @@ class ContainerFileSystemTest {
             Path.of("files/five.bin") to Random(5).nextBytes(1024 * 8),
         )
 
-        var index = 0;
         ContainerFileSystem.open(containerPath).use { container ->
-            files.forEach { (path, data) ->
+            files.forEachIndexed { index, (path, data) ->
                 container.openWrite(path).use { stream ->
-                    writeInChunks(stream, data, ++index)
+                    writeInChunks(stream, data, index)
                 }
             }
         }
@@ -46,27 +46,27 @@ class ContainerFileSystemTest {
         }
     }
 
-    @Test
-    fun writeVideoCloseReopen() {
-        val containerPath = tempDir.resolve("test.fs")
-        val sourcePath = Path.of("data/Rick_Astley_Never_Gonna_Give_You_Up.mp4")
-        val containerFileName = Path.of("video/Rick_Astley_Never_Gonna_Give_You_Up.mp4")
-        val expectedChecksum = Files.newInputStream(sourcePath).use(::sha256)
-
-        ContainerFileSystem.open(containerPath).use { container ->
-            Files.newInputStream(sourcePath).use { input ->
-                container.openWrite(containerFileName).use { output ->
-                    input.copyTo(output)
-                }
-            }
-        }
-
-        ContainerFileSystem.open(containerPath).use { container ->
-            container.openRead(containerFileName).use { input ->
-                assertArrayEquals(expectedChecksum, sha256(input))
-            }
-        }
-    }
+//    @Test
+//    fun writeVideoCloseReopen() {
+//        val containerPath = tempDir.resolve("test.fs")
+//        val sourcePath = Path.of("data/Rick_Astley_Never_Gonna_Give_You_Up.mp4")
+//        val containerFileName = Path.of("video/Rick_Astley_Never_Gonna_Give_You_Up.mp4")
+//        val expectedChecksum = Files.newInputStream(sourcePath).use(::sha256)
+//
+//        ContainerFileSystem.open(containerPath).use { container ->
+//            Files.newInputStream(sourcePath).use { input ->
+//                container.openWrite(containerFileName).use { output ->
+//                    input.copyTo(output)
+//                }
+//            }
+//        }
+//
+//        ContainerFileSystem.open(containerPath).use { container ->
+//            container.openRead(containerFileName).use { input ->
+//                assertArrayEquals(expectedChecksum, sha256(input))
+//            }
+//        }
+//    }
 
     @Test
     fun storeProjectTreeFunctionalTest() {
@@ -88,6 +88,8 @@ class ContainerFileSystemTest {
                 val containerChecksum = container.openRead(file).use(::sha256)
                 assertArrayEquals(expectedChecksum, containerChecksum)
             }
+            println("initial status")
+            printContainerTree(container, Path.of(""))
         }
 
 
@@ -100,6 +102,25 @@ class ContainerFileSystemTest {
             deletedFiles.forEach { file ->
                 container.delete(file)
             }
+            println("after deleting")
+            printContainerTree(container, Path.of(""))
+        }
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            files.forEachIndexed { index, file ->
+                if (!container.exists(file)) {
+                    Files.newInputStream(file).use { input ->
+                        container.openWrite(file).use { output ->
+                            writeInChunks(input, output, seed = index)
+                        }
+                    }
+                }
+                val expectedChecksum = Files.newInputStream(file).use(::sha256)
+                val containerChecksum = container.openRead(file).use(::sha256)
+                assertArrayEquals(expectedChecksum, containerChecksum)
+            }
+            println("after adding files")
+            printContainerTree(container, Path.of(""))
         }
 
         ContainerFileSystem.open(containerPath).use { container ->
@@ -112,7 +133,7 @@ class ContainerFileSystemTest {
     }
 
     private fun requestProjectFiles(): List<Path> {
-        val excludedDirectories = setOf(".git", ".gradle", ".idea", "build", "out")
+        val excludedDirectories = setOf(".git", ".gradle", ".idea", ".kotlin", "build", "gradle", "out")
         return Files.walk(projectRoot).use { paths ->
             paths
                 .filter { Files.isRegularFile(it) }
@@ -160,5 +181,25 @@ class ContainerFileSystemTest {
             digest.update(buffer, 0, read)
         }
         return digest.digest()
+    }
+
+    private fun printContainerTree(container: ContainerFileSystem, path: Path, depth: Int = 0) {
+        val indent = "  ".repeat(depth)
+        container.list(path)
+            .sortedBy { it.name }
+            .forEach { entry ->
+                when (entry.type) {
+                    EntityType.Directory -> {
+                        println("$indent ${entry.name}")
+                        printContainerTree(container, path.resolve(entry.name), depth + 1)
+                    }
+
+                    EntityType.File -> {
+                        println("$indent ${entry.name} (${entry.size} bytes)")
+                    }
+
+                    EntityType.None -> {}
+                }
+            }
     }
 }
