@@ -5,14 +5,21 @@ import container.ContainerFile
 import container.ContainerHeader
 import container.ContainerHeaderCodec
 import container.ContainerLayout
-import container.OpenMode
+import streams.ContainerInputStream
+import streams.ContainerOutputStream
 import data.DataStorage
+import metadata.EntityMetadata
 import metadata.EntityMetadataBlock
 import metadata.EntityMetadataBlockCodec
+import metadata.EntityType
+import metadata.EntryInfo
 import metadata.MetadataStorage
+import java.io.InputStream
+import java.io.OutputStream
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.io.path.name
 
 public class ContainerFileSystem private constructor(
     private val file: ContainerFile,
@@ -56,6 +63,7 @@ public class ContainerFileSystem private constructor(
             val randomAccessFile = RandomAccessFile(path.toFile(), "rw")
             val header = ContainerHeader.createDefault(DEFAULT_BLOCK_SIZE)
             val containerFile = ContainerFile(randomAccessFile)
+            // TODO("Initialize file")
             containerFile.grow(ContainerHeaderCodec.SERIALIZED_SIZE + ContainerLayout.SYSTEM_BLOCK_COUNT * header.blockSize)
             ContainerHeaderCodec.write(randomAccessFile, header)
             AllocationMapPageCodec.write(
@@ -83,35 +91,87 @@ public class ContainerFileSystem private constructor(
         }
     }
 
-    fun open(path: String, mode: ContainerOpenMode = ContainerOpenMode.OpenExisting): ContainerFileSystem {
-        TODO("Not yet implemented")
-    }
-
     fun openRead(path: Path): InputStream {
         val metadata = requireEntry(path)
         require(metadata.type == EntityType.File) {
             "Not a file: $path"
         }
-        return ContainerInputStream(metadata, dataStorage, DataStorage.DEFAULT_BUFFER_SIZE)
+        return ContainerInputStream(metadata, dataStorage)
     }
 
-    fun openRead(path: String): ContainerInputStream {
+
+    fun openWrite(path: Path, openMode: OpenMode = OpenMode.CreateNew): OutputStream {
+        val parent = resolveOrCreateParent(path)
+        val metadata = metadataStorage.findChild(parent.id, path.name)
+        if (metadata != null) {
+            require(metadata.type == EntityType.File) {
+                "Not a file: $path"
+            }
+        }
+
+        val openedMetadata = when (openMode) {
+            OpenMode.CreateNew -> {
+                check(metadata == null) {
+                    "Entry already exists: $path"
+                }
+                metadataStorage.create(
+                    parentId = parent.id,
+                    name = path.name,
+                    type = EntityType.File
+                )
+            }
+
+            OpenMode.CreateOrTruncate -> {
+                if (metadata == null) {
+                    metadataStorage.create(
+                        parentId = parent.id,
+                        name = path.name,
+                        type = EntityType.File
+                    )
+                } else {
+                    require(metadata.type == EntityType.File) {
+                        "Not a file: $path"
+                    }
+
+                    dataStorage.delete(metadata)
+
+                    metadata.copy(
+                        size = 0L,
+                        firstExtentBlock = ContainerLayout.NONE_BLOCK
+                    ).also {
+                        metadataStorage.update(it)
+                    }
+                }
+            }
+
+            OpenMode.Append -> {
+                val existing = requireNotNull(metadata) {
+                    "File does not exist: $path"
+                }
+                require(existing.type == EntityType.File) {
+                    "Not a file: $path"
+                }
+                existing
+            }
+        }
+
+        return ContainerOutputStream(openedMetadata, dataStorage)
+        {
+                updated ->
+            metadataStorage.update(updated)
+            metadataStorage.flush()
+        }
+    }
+
+    fun delete(path: Path) {
         TODO("Not yet implemented")
     }
 
-    fun openWrite(path: String, openMode: OpenMode = OpenMode.CreateNew): ContainerOutputStream {
+    fun delete(path: Path, recursive: Boolean = false) {
         TODO("Not yet implemented")
     }
 
-    fun delete(path: String) {
-        TODO("Not yet implemented")
-    }
-
-    fun delete(path: String, recursive: Boolean = false) {
-        TODO("Not yet implemented")
-    }
-
-    fun move(source: String, destination: String) {
+    fun move(source: Path, destination: String) {
         TODO("Not yet implemented")
     }
 
@@ -119,15 +179,19 @@ public class ContainerFileSystem private constructor(
         TODO("Not yet implemented")
     }
 
-    fun exists(path: String): Boolean  {
+    fun exists(path: Path): Boolean  {
         TODO("Not yet implemented")
     }
 
-    fun list(path: String): Sequence<EntryInfo> {
+    fun createDirectory(path: String) {
         TODO("Not yet implemented")
     }
 
-    fun getInfo(path: String): EntryInfo? {
+    fun list(path: Path): Sequence<EntryInfo> {
+        TODO("Not yet implemented")
+    }
+
+    fun getInfo(path: Path): EntryInfo? {
         TODO("Not yet implemented")
     }
 
@@ -143,5 +207,36 @@ public class ContainerFileSystem private constructor(
         dataStorage.close()
         allocator.close()
         file.close()
+    }
+
+    private fun resolveOrCreateParent(path: Path): EntityMetadata {
+        var current = metadataStorage.root
+        val components = path.normalize().filter { it.toString().isNotEmpty() }
+        for (component in components.dropLast(1)) {
+            val name = component.toString()
+            val next = metadataStorage.findChild(current.id, name)
+                ?: metadataStorage.create(name = name, type = EntityType.Directory, parentId = current.id)
+            require(next.type == EntityType.Directory) {
+                "Not a directory: $component"
+            }
+            current = next
+        }
+        return current
+    }
+
+    private fun requireEntry(path: Path): EntityMetadata {
+        return requireNotNull(resolve(path)) {
+            "Entry does not exist: $path"
+        }
+    }
+
+    private fun resolve(path: Path): EntityMetadata? {
+        var current = metadataStorage.root
+        for (component in path) {
+            if (current.type != EntityType.Directory)
+                return null
+            current = metadataStorage.findChild(current.id, component.toString()) ?: return null
+        }
+        return current
     }
 }
