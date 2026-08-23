@@ -102,6 +102,12 @@ internal class MetadataStorage(
         return null
     }
 
+    fun findById(id: Long): EntityMetadata? {
+        val blockIndex = id / slotsPerBlock
+        val slotIndex = (id % slotsPerBlock).toInt()
+        return blocksByIndex[blockIndex]?.block?.entries?.getOrNull(slotIndex)
+    }
+
     fun list(parentId: Long): Sequence<EntityMetadata> =
         sequence {
             for ((_, block) in blocks) {

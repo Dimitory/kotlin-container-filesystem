@@ -8,6 +8,14 @@ internal class ContainerFile internal constructor(
 
     val size: Long get() = file.length() - ContainerHeaderCodec.SERIALIZED_SIZE
 
+    fun cleanAndInitialize(header: ContainerHeader) : ContainerFile {
+        file.setLength(0)
+        file.setLength(ContainerHeaderCodec.SERIALIZED_SIZE + ContainerLayout.SYSTEM_BLOCK_COUNT * header.blockSize)
+        ContainerHeaderCodec.write(file, header)
+        flush()
+        return this
+    }
+
     fun read(offset: Long, buffer: ByteArray, bufferOffset: Int = 0, length: Int = buffer.size - bufferOffset) {
         require(offset >= 0)
         require(bufferOffset >= 0)

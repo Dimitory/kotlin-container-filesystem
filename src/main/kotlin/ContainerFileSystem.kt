@@ -64,9 +64,7 @@ class ContainerFileSystem private constructor(
             val randomAccessFile = RandomAccessFile(path.toFile(), "rw")
             val header = ContainerHeader.createDefault(DEFAULT_BLOCK_SIZE)
             val containerFile = ContainerFile(randomAccessFile)
-            // TODO("Initialize file")
-            containerFile.grow(ContainerHeaderCodec.SERIALIZED_SIZE + ContainerLayout.SYSTEM_BLOCK_COUNT * header.blockSize)
-            ContainerHeaderCodec.write(randomAccessFile, header)
+                .cleanAndInitialize(header)
             AllocationMapPageCodec.write(
                 file = containerFile,
                 blockIndex = ContainerLayout.FIRST_ALLOCATION_MAP_BLOCK,
@@ -84,10 +82,10 @@ class ContainerFileSystem private constructor(
                     entries = arrayOfNulls(EntityMetadataBlockCodec.slotsPerBlock(header.blockSize))
                 )
             )
+            containerFile.flush()
             val allocator = ContainerAllocator(containerFile, header)
             val metadataStorage = MetadataStorage(allocator, header)
             val dataStorage = DataStorage(allocator, header)
-            containerFile.flush()
             return ContainerFileSystem(containerFile, allocator, metadataStorage, dataStorage)
         }
     }
@@ -178,7 +176,7 @@ class ContainerFileSystem private constructor(
             }
 
             if (recursive) {
-                TODO("Not yet implemented")
+                deleteRecursive(metadata)
             } else {
                 metadataStorage.delete(metadata.id)
             }
@@ -199,7 +197,11 @@ class ContainerFileSystem private constructor(
             "Already exists: $destination"
         }
 
-        // TODO("Check move directory into itself")
+        if (sourceMetadata.type == EntityType.Directory) {
+            if (isSubdirectory(destinationParent, sourceMetadata.id)) {
+                error("Cannot move directory into itself")
+            }
+        }
 
         metadataStorage.update(
             sourceMetadata.copy(
@@ -244,6 +246,29 @@ class ContainerFileSystem private constructor(
         dataStorage.close()
         allocator.close()
         file.close()
+    }
+
+    private fun isSubdirectory(entry: EntityMetadata, ancestorId: Long): Boolean {
+        var current = entry
+        while (current.id != metadataStorage.root.id) {
+            if (current.id == ancestorId) {
+                return true
+            }
+            current = metadataStorage.findById(current.parentId) ?: return false
+        }
+        return current.id == ancestorId
+    }
+
+    private fun deleteRecursive(metadata: EntityMetadata) {
+        if (metadata.type == EntityType.Directory) {
+            val children = metadataStorage.list(metadata.id).toList()
+            for (child in children) {
+                deleteRecursive(child)
+            }
+        } else {
+            dataStorage.delete(metadata)
+        }
+        metadataStorage.delete(metadata.id)
     }
 
     private fun resolveOrCreateParent(path: Path): EntityMetadata {
