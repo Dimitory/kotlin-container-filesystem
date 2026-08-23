@@ -35,7 +35,7 @@ internal class MetadataStorage(
         var blockIndex = ContainerLayout.FIRST_METADATA_BLOCK
         while (blockIndex != ContainerLayout.NONE_BLOCK) {
             val buffer = ByteArray(header.blockSize)
-            allocator.readBlock(blockIndex, 0, buffer)
+            allocator.read(blockIndex, 0, buffer)
             val block = EntityMetadataBlockCodec.decode(buffer)
             val cachedBlock = CachedBlock(
                 blockIndex = blockIndex,
@@ -139,7 +139,7 @@ internal class MetadataStorage(
         for ((blockIndex, block) in blocks) {
             val buffer = ByteArray(header.blockSize)
             EntityMetadataBlockCodec.encode(block, buffer)
-            allocator.writeBlock(blockIndex, 0, buffer)
+            allocator.write(blockIndex, 0, buffer)
         }
     }
 

@@ -3,15 +3,15 @@ package allocator
 import container.ContainerFile
 import container.ContainerHeader
 import container.ContainerLayout
-import kotlin.Int
 
 internal class ContainerAllocator internal constructor(
     private val file : ContainerFile,
     private val header : ContainerHeader,
 ) : AutoCloseable {
 
-    private val blocksPerMap: Long = AllocationMapPageCodec.blocksPerMap(header.blockSize)
     private val availableBlockCount: Long get() = file.size / header.blockSize
+    private val managedBlockCount: Long get() = allocationMapPages.size.toLong() * blocksPerMap
+    private val blocksPerMap: Long = AllocationMapPageCodec.blocksPerMap(header.blockSize)
     private val allocationMapPages = mutableListOf<CachedAllocationMapPage>()
 
     private data class CachedAllocationMapPage(
@@ -27,17 +27,17 @@ internal class ContainerAllocator internal constructor(
         val buffer = ByteArray(header.blockSize)
         while (blockIndex != ContainerLayout.NONE_BLOCK) {
             check(blockIndex in 0..<availableBlockCount) {
-                "Allocation map page points outside container: $blockIndex"
+                "Allocation map outside container: $blockIndex"
             }
-            check (visited.add(blockIndex)) {
-                "Allocation map cycle at block $blockIndex"
+            check(visited.add(blockIndex)) {
+                "Allocation map cycle|: $blockIndex"
             }
             file.read(blockIndex * header.blockSize, buffer)
             val allocationMapPage = AllocationMapPageCodec.decode(buffer)
             allocationMapPages += CachedAllocationMapPage(blockIndex, allocationMapPage)
             blockIndex = allocationMapPage.nextBlock
         }
-        check (allocationMapPages.isNotEmpty()) {
+        check(allocationMapPages.isNotEmpty()) {
             "Missing allocation map"
         }
 
@@ -49,7 +49,6 @@ internal class ContainerAllocator internal constructor(
 
     fun allocate(requestedBlockCount: Int, preferredAfterBlock: Long = ContainerLayout.NONE_BLOCK): BlockRange {
         require(requestedBlockCount > 0)
-
         if (preferredAfterBlock != ContainerLayout.NONE_BLOCK) {
             val preferredStart = preferredAfterBlock + 1
             if (canAllocateRange(preferredStart, requestedBlockCount)) {
@@ -64,15 +63,35 @@ internal class ContainerAllocator internal constructor(
             return BlockRange(freeStart, requestedBlockCount)
         }
 
+        while (availableBlockCount + requestedBlockCount > managedBlockCount) {
+            val newMapBlock = availableBlockCount
+            file.grow(header.blockSize)
+            val previousIndex = allocationMapPages.lastIndex
+            val previous = allocationMapPages[previousIndex]
+            allocationMapPages[previousIndex] = previous.copy(
+                allocationMapPage = previous.allocationMapPage.copy(
+                    nextBlock = newMapBlock
+                )
+            )
+            allocationMapPages += CachedAllocationMapPage(
+                blockIndex = newMapBlock,
+                allocationMapPage = AllocationMapPage(
+                    nextBlock = ContainerLayout.NONE_BLOCK,
+                    bitmap = ByteArray(
+                        AllocationMapPageCodec.bitmapSize(header.blockSize)
+                    )
+                )
+            )
+            markAllocated(newMapBlock, 1)
+        }
+
         val startBlock = availableBlockCount
         file.grow(requestedBlockCount * header.blockSize)
         markAllocated(startBlock, requestedBlockCount)
-        return BlockRange(startBlock,requestedBlockCount)
+        return BlockRange(startBlock, requestedBlockCount)
     }
 
     fun free(range: BlockRange) {
-        require(range.blockCount > 0)
-        require(range.startBlock >= 0)
         markFree(range.startBlock, range.blockCount)
     }
 
@@ -110,8 +129,8 @@ internal class ContainerAllocator internal constructor(
 
     private fun canAllocateRange(startBlock: Long, blockCount: Int): Boolean {
         val endBlock = startBlock + blockCount
-        if (startBlock < 0 || endBlock > availableBlockCount) return false
-        if (endBlock > allocationMapPages.size.toLong() * blocksPerMap) return false
+        if (startBlock < 0 || endBlock > availableBlockCount)
+            return false
         for (block in startBlock..< endBlock)
             if (isAllocated(block))
                 return false
@@ -145,8 +164,7 @@ internal class ContainerAllocator internal constructor(
     }
 
     fun read(startBlock: Long, offset: Long, buffer: ByteArray, bufferOffset: Int = 0, length: Int = buffer.size - bufferOffset) {
-        val touchedBlocks = ((offset + length + header.blockSize - 1L) / header.blockSize).toInt()
-        validateAllocated(startBlock, touchedBlocks)
+        validateAllocated(startBlock, offset, length)
         file.read(
             offset = header.blockSize * startBlock + offset,
             buffer = buffer,
@@ -156,8 +174,7 @@ internal class ContainerAllocator internal constructor(
     }
 
     fun write(startBlock: Long, offset: Long, buffer: ByteArray, bufferOffset: Int = 0, length: Int = buffer.size - bufferOffset) {
-        val touchedBlocks = ((offset + length + header.blockSize - 1L) / header.blockSize).toInt()
-        validateAllocated(startBlock, touchedBlocks)
+        validateAllocated(startBlock, offset, length)
         file.write(
             offset = header.blockSize * startBlock + offset,
             buffer = buffer,
@@ -166,21 +183,15 @@ internal class ContainerAllocator internal constructor(
         )
     }
 
+    private fun validateAllocated(startBlock: Long, offset: Long, length: Int) {
+        val firstBlock = startBlock + offset / header.blockSize
+        val lastBlock = startBlock + (offset + length - 1) / header.blockSize
+        val count = (lastBlock - firstBlock + 1)
 
-    fun readBlock(blockIndex: Long, offset: Long, buffer: ByteArray, bufferOffset: Int = 0, length: Int = buffer.size - bufferOffset) =
-        read(blockIndex, offset, buffer, bufferOffset, length)
-
-    fun writeBlock(blockIndex: Long, offset: Long, buffer: ByteArray, bufferOffset: Int = 0, length: Int = buffer.size - bufferOffset) =
-        write(blockIndex, offset, buffer, bufferOffset, length)
-
-    private fun validateAllocated(blockIndex: Long, count: Int = 1) {
-        require(blockIndex + count <= availableBlockCount) {
-            "Block range is outside container"
-        }
-
-        repeat(count) { index ->
-            require(isAllocated(blockIndex + index)) {
-                "Block ${blockIndex + index} is not allocated"
+        require(firstBlock + count <= availableBlockCount)
+        repeat(count.toInt()) { index ->
+            require(isAllocated(startBlock + index)) {
+                "Block ${startBlock + index} not allocated"
             }
         }
     }
@@ -189,7 +200,7 @@ internal class ContainerAllocator internal constructor(
         val buffer = ByteArray(header.blockSize)
         for ((blockIndex, allocationMapPage) in allocationMapPages) {
             AllocationMapPageCodec.encode(allocationMapPage, buffer)
-            writeBlock(blockIndex, 0, buffer)
+            write(blockIndex, 0, buffer)
         }
         file.flush()
     }

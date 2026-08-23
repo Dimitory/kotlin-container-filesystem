@@ -18,7 +18,7 @@ class ContainerFileSystemTest {
 
     @Test
     fun writeFilesByChunksAndReopen() {
-        val containerPath = tempDir.resolve("test.fs")
+        val containerPath = tempDir.resolve("test.rcfs")
 
         val files = arrayOf(
             Path.of("files/one.bin") to Random(1).nextBytes(1024),
@@ -26,6 +26,7 @@ class ContainerFileSystemTest {
             Path.of("files/three.bin") to Random(3).nextBytes(1024 * 4),
             Path.of("files/four.bin") to Random(4).nextBytes(1024 * 6),
             Path.of("files/five.bin") to Random(5).nextBytes(1024 * 8),
+            Path.of("files/huge.bin") to Random(5).nextBytes(1024 * 1024 * 8),
         )
 
         ContainerFileSystem.open(containerPath).use { container ->
@@ -46,31 +47,9 @@ class ContainerFileSystemTest {
         }
     }
 
-//    @Test
-//    fun writeVideoCloseReopen() {
-//        val containerPath = tempDir.resolve("test.fs")
-//        val sourcePath = Path.of("data/Rick_Astley_Never_Gonna_Give_You_Up.mp4")
-//        val containerFileName = Path.of("video/Rick_Astley_Never_Gonna_Give_You_Up.mp4")
-//        val expectedChecksum = Files.newInputStream(sourcePath).use(::sha256)
-//
-//        ContainerFileSystem.open(containerPath).use { container ->
-//            Files.newInputStream(sourcePath).use { input ->
-//                container.openWrite(containerFileName).use { output ->
-//                    input.copyTo(output)
-//                }
-//            }
-//        }
-//
-//        ContainerFileSystem.open(containerPath).use { container ->
-//            container.openRead(containerFileName).use { input ->
-//                assertArrayEquals(expectedChecksum, sha256(input))
-//            }
-//        }
-//    }
-
     @Test
     fun storeProjectTreeFunctionalTest() {
-        val containerPath = tempDir.resolve("project.fs")
+        val containerPath = tempDir.resolve("project.rcfs")
         val files = requestProjectFiles()
         ContainerFileSystem.open(containerPath).use { container ->
             files.forEachIndexed { index, file ->
