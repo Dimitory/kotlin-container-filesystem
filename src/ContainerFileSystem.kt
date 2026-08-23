@@ -157,42 +157,74 @@ public class ContainerFileSystem private constructor(
 
         return ContainerOutputStream(openedMetadata, dataStorage)
         {
-                updated ->
-            metadataStorage.update(updated)
-            metadataStorage.flush()
+            updated ->
+                metadataStorage.update(updated)
+                metadataStorage.flush()
         }
     }
 
-    fun delete(path: Path) {
-        TODO("Not yet implemented")
-    }
 
     fun delete(path: Path, recursive: Boolean = false) {
-        TODO("Not yet implemented")
+        val metadata = requireEntry(path)
+        if (metadata.type == EntityType.Directory) {
+            val children = metadataStorage
+                .list(metadata.id)
+                .toList()
+
+            if (children.isNotEmpty() && !recursive) {
+                error("Directory is not empty: $path")
+            }
+
+            if (recursive) {
+                TODO("Not yet implemented")
+            } else {
+                metadataStorage.delete(metadata.id)
+            }
+        }
+        else
+        {
+            dataStorage.delete(metadata)
+            metadataStorage.delete(metadata.id)
+        }
     }
 
-    fun move(source: Path, destination: String) {
-        TODO("Not yet implemented")
-    }
+    fun move(source: Path, destination: Path) {
+        val sourceMetadata = requireEntry(source)
+        val destinationParent = resolveParent(destination)
+        val destinationExists = metadataStorage.findChild(destinationParent.id, destination.name)
+        check(destinationExists == null) {
+            "Already exists: $destination"
+        }
 
-    fun rename(path: String, newName: String) {
-        TODO("Not yet implemented")
+        if (sourceMetadata.type == EntityType.Directory) {
+            // TODO("Check move directory into itself")
+        }
+
+        metadataStorage.update(
+            sourceMetadata.copy(
+                parentId = destinationParent.id,
+                name = destination.name
+            )
+        )
     }
 
     fun exists(path: Path): Boolean  {
-        TODO("Not yet implemented")
-    }
-
-    fun createDirectory(path: String) {
-        TODO("Not yet implemented")
+        return resolve(path) != null
     }
 
     fun list(path: Path): Sequence<EntryInfo> {
-        TODO("Not yet implemented")
+        val directory = requireEntry(path)
+        require(directory.type == EntityType.Directory) {
+            "Not a directory: $path"
+        }
+
+        return metadataStorage
+            .list(directory.id)
+            .map(::toEntryInfo)
     }
 
     fun getInfo(path: Path): EntryInfo? {
-        TODO("Not yet implemented")
+        return resolve(path)?.let(::toEntryInfo)
     }
 
     fun flush() {
@@ -211,8 +243,7 @@ public class ContainerFileSystem private constructor(
 
     private fun resolveOrCreateParent(path: Path): EntityMetadata {
         var current = metadataStorage.root
-        val components = path.normalize().filter { it.toString().isNotEmpty() }
-        for (component in components.dropLast(1)) {
+        for (component in path) {
             val name = component.toString()
             val next = metadataStorage.findChild(current.id, name)
                 ?: metadataStorage.create(name = name, type = EntityType.Directory, parentId = current.id)
@@ -238,5 +269,28 @@ public class ContainerFileSystem private constructor(
             current = metadataStorage.findChild(current.id, component.toString()) ?: return null
         }
         return current
+    }
+
+    private fun resolveParent(path: Path): EntityMetadata {
+        var current: EntityMetadata = metadataStorage.root
+        for (component in path) {
+            val next = metadataStorage.findChild(current.id, component.toString())
+            checkNotNull(next) {
+                "Directory does not exist: $component"
+            }
+            require(next.type == EntityType.Directory) {
+                "Not a directory: $component"
+            }
+            current = next
+        }
+        return current
+    }
+
+    private fun toEntryInfo(metadata: EntityMetadata): EntryInfo {
+        return EntryInfo(
+            name = metadata.name,
+            type = metadata.type,
+            size = metadata.size
+        )
     }
 }

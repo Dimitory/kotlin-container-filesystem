@@ -24,19 +24,29 @@ internal class ContainerAllocator internal constructor(
     init {
         allocationMapPages.clear()
 
+        val visited = mutableSetOf<Long>()
         var blockIndex = ContainerLayout.FIRST_ALLOCATION_MAP_BLOCK
         val buffer = ByteArray(header.blockSize)
         while (blockIndex != ContainerLayout.NONE_BLOCK) {
+            check(blockIndex in 0..<availableBlockCount) {
+                "Allocation map page points outside container: $blockIndex"
+            }
+            check (visited.add(blockIndex)) {
+                "Allocation map cycle at block $blockIndex"
+            }
             file.read(blockIndex * header.blockSize, buffer)
             val allocationMapPage = AllocationMapPageCodec.decode(buffer)
             allocationMapPages += CachedAllocationMapPage(blockIndex, allocationMapPage)
             blockIndex = allocationMapPage.nextBlock
         }
+        check (allocationMapPages.isNotEmpty()) {
+            "Missing allocation map"
+        }
+
         for ((blockIndex, _) in allocationMapPages) {
             setAllocated(blockIndex, true);
         }
         setAllocated(ContainerLayout.FIRST_METADATA_BLOCK, true)
-        validateAllocationMap()
     }
 
     fun allocate(requestedBlockCount: Int, preferredAfterBlock: Long = ContainerLayout.NONE_BLOCK): BlockRange {
@@ -174,41 +184,6 @@ internal class ContainerAllocator internal constructor(
             require(isAllocated(blockIndex + index)) {
                 "Block ${blockIndex + index} is not allocated"
             }
-        }
-    }
-
-    private fun validateAllocationMap() {
-        require(allocationMapPages.isNotEmpty()) {
-            "Allocation map is empty"
-        }
-
-        require(allocationMapPages.first().blockIndex == ContainerLayout.FIRST_ALLOCATION_MAP_BLOCK) {
-            "Invalid first allocation map block: ${allocationMapPages.first().blockIndex}"
-        }
-
-        for (index in allocationMapPages.indices) {
-            val page = allocationMapPages[index]
-            require(page.blockIndex in 0..<availableBlockCount) {
-                "Allocation map page points outside container: ${page.blockIndex}"
-            }
-
-            require(isAllocated(page.blockIndex)) {
-                "Allocation map block ${page.blockIndex} is marked as free"
-            }
-
-            val expectedNext = allocationMapPages.getOrNull(index + 1)?.blockIndex ?: ContainerLayout.NONE_BLOCK
-            require(page.allocationMapPage.nextBlock == expectedNext) {
-                "Invalid allocation map chain at block ${page.blockIndex}: expected next=${expectedNext}, actual=${page.allocationMapPage.nextBlock}"
-            }
-
-            require(page.allocationMapPage.bitmap.size == bitmapSize) {
-                "Invalid allocation map bitmap size at block ${page.blockIndex}: ${page.allocationMapPage.bitmap.size}"
-            }
-        }
-
-        val maxManagedBlocks = allocationMapPages.size.toLong() * blocksPerMap
-        require(availableBlockCount <= maxManagedBlocks) {
-            "Allocation map does not cover entire container: blocks=${availableBlockCount}, managed=${maxManagedBlocks}"
         }
     }
 
