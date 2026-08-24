@@ -1,11 +1,45 @@
+# Kotlin Container File System
+
+## Design overview
+The library implements a small file-system-like storage of a single container file.
+
+The container is split into fixed-size blocks (4096 bytes by default). 
+The first bytes contain a small container header with the format magic, version and block size. 
+The remaining space is managed as blocks.
+File contents are read and written through streams.
+Metadata and allocation information are cached in memory while the container is open and persisted when the storage is flushed or closed.
+
+**ContainerAllocator** manages allocated blocks using bitmap-based maps.
+
+**MetadataStorage** stores the directory hierarchy and file metadata. 
+Metadata entries contain the entry name, type, parent identifier, file size and a reference to the file data.
+
+**ContainerFileSystem** exposes the public API for creating, reading, writing, appending, deleting, renaming, moving and listing files and directories.
+
+**DataStorage** stores file contents. File data is split into allocated block ranges and is accessed through input and output streams.
+
+**ContainerFile** is the lowest-level abstraction over the physical container file.
+
 ## Performance
-CPU utilization is actually low most work is reading and writing data to disk.
 
-Library uses allocation map about 1 bit for each block. For example, a 100 GB container with 4 KB blocks needs about 3.2 MB of RAM for the map. Files are read in parts, so the whole file does not need to be loaded into memory.
+### CPU
 
-Disk space can have some small waste because files use fixed-size blocks. For example, a 10 KB file uses less than 12 KB with 4 KB blocks.
+Free-space allocation currently performs a linear scan over the
+allocation bitmap, so fragmented large containers may make allocation
+more expensive.
 
-The main limit is finding free space. The system may need to scan the allocation map. This is fine for small and medium containers, but for large containers may need a better free-space search in the future.
+Metadata lookup is currently linear in the number of metadata entries.
+
+### RAM
+The allocation map uses approximately one bit per managed block. 
+With 4 KiB blocks, a 100 GiB container requires about 3.1 MiB
+for allocation bitmaps.
+
+Disk space can have some small waste because files use fixed-size blocks. 
+For example, a 10 KB file uses less than 12 KB with 4 KB blocks.
+
+The main limit is finding free space. 
+The system may need to scan the allocation map.
 
 ## Example
 ```kotlin
@@ -24,7 +58,7 @@ ContainerFileSystem.open(containerPath).use { container ->
     println(content.decodeToString())
 }
 ```
-## Storage layout
+## Storage model
 
 ```text
 +--------------------------------------+
@@ -52,4 +86,22 @@ ContainerFileSystem.open(containerPath).use { container ->
 +--------------------------------------+
 | Metadata | Allocation | Data blocks..|
 +--------------------------------------+
+```
+
+## Thread safety
+
+A `ContainerFileSystem` is not thread-safe.
+
+## Requirements
+
+- JDK 17 or newer
+
+## Running tests
+
+```shell
+# macOS / Linux
+./gradlew test
+
+# Windows
+gradlew.bat test
 ```

@@ -190,7 +190,7 @@ internal class ContainerAllocator internal constructor(
 
         require(firstBlock + count <= availableBlockCount)
         repeat(count.toInt()) { index ->
-            require(isAllocated(startBlock + index)) {
+            require(isAllocated(firstBlock + index)) {
                 "Block ${startBlock + index} not allocated"
             }
         }

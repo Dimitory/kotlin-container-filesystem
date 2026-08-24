@@ -1,184 +1,227 @@
 import metadata.EntityType
-import org.junit.jupiter.api.Assertions.assertArrayEquals
+import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertNotNull
 import org.junit.jupiter.api.io.TempDir
-import java.io.InputStream
-import java.io.OutputStream
-import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
-import kotlin.math.roundToInt
 import kotlin.random.Random
 
 class ContainerFileSystemTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private val projectRoot: Path get() = Path.of("").normalize()
-
     @Test
-    fun writeFilesByChunksAndReopen() {
+    fun createWriteReadAndReopen() {
         val containerPath = tempDir.resolve("test.rcfs")
 
-        val files = arrayOf(
-            Path.of("files/one.bin") to Random(1).nextBytes(1024),
-            Path.of("files/two.bin") to Random(2).nextBytes(1024 * 2),
-            Path.of("files/three.bin") to Random(3).nextBytes(1024 * 4),
-            Path.of("files/four.bin") to Random(4).nextBytes(1024 * 6),
-            Path.of("files/five.bin") to Random(5).nextBytes(1024 * 8),
-            Path.of("files/huge.bin") to Random(5).nextBytes(1024 * 1024 * 8),
+        val files = listOf(
+            Path.of("files/1.bin") to Random(1).nextBytes(1),
+            Path.of("files/4095.bin") to Random(2).nextBytes(4095),
+            Path.of("files/4096.bin") to Random(3).nextBytes(4096),
+            Path.of("files/4097.bin") to Random(4).nextBytes(4097),
+            Path.of("files/8191.bin") to Random(5).nextBytes(8191),
+            Path.of("files/8192.bin") to Random(6).nextBytes(8192),
+            Path.of("files/8193.bin") to Random(7).nextBytes(8193),
         )
 
         ContainerFileSystem.open(containerPath).use { container ->
             files.forEachIndexed { index, (path, data) ->
-                container.openWrite(path).use { stream ->
-                    writeInChunks(stream, data, index)
+                container.openWrite(path).use { output ->
+                    TestUtils.writeInChunks(output, data, seed = index)
                 }
             }
         }
 
         ContainerFileSystem.open(containerPath).use { container ->
             files.forEach { (path, expected) ->
-                val actual = container.openRead(path).use { stream ->
-                    stream.readBytes()
-                }
-                assertArrayEquals(expected, actual, "Content differs for $path")
+                val actual = container.openRead(path).use { it.readBytes() }
+                assertArrayEquals(expected, actual)
             }
+        }
+    }
+
+
+    @Test
+    fun appendToExistingFile() {
+        val containerPath = tempDir.resolve("test.rcfs")
+        val path = Path.of("file.txt")
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            container.openWrite(path).use {
+                it.write("Hello".toByteArray())
+            }
+
+            container.openWrite(path, OpenMode.Append).use {
+                it.write(" World".toByteArray())
+            }
+        }
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            val actual = container.openRead(path).use { it.readBytes().decodeToString() }
+            assertEquals("Hello World", actual)
         }
     }
 
     @Test
-    fun storeProjectTreeFunctionalTest() {
-        val containerPath = tempDir.resolve("project.rcfs")
-        val files = requestProjectFiles()
+    fun createOrTruncateReplacesContent() {
+        val containerPath = tempDir.resolve("test.rcfs")
+        val path = Path.of("file.txt")
+
         ContainerFileSystem.open(containerPath).use { container ->
-            files.forEachIndexed { index, file ->
-                Files.newInputStream(file).use { input ->
-                    container.openWrite(file).use { output ->
-                        writeInChunks(input, output, seed = index)
-                    }
-                }
+            container.openWrite(path).use {
+                it.write("Hello".toByteArray())
+            }
+
+            container.openWrite(path, OpenMode.CreateOrTruncate).use {
+                it.write(" World".toByteArray())
             }
         }
 
         ContainerFileSystem.open(containerPath).use { container ->
-            files.forEach { file ->
-                val expectedChecksum = Files.newInputStream(file).use(::sha256)
-                val containerChecksum = container.openRead(file).use(::sha256)
-                assertArrayEquals(expectedChecksum, containerChecksum)
-            }
-            println("initial status")
-            printContainerTree(container, Path.of(""))
-        }
+            val actual = container.openRead(path)
+                .use { it.readBytes().decodeToString() }
 
-
-        val deletedFiles = files
-            .shuffled(Random(7))
-            .take((files.size * 0.7).roundToInt())
-            .toSet()
-
-        ContainerFileSystem.open(containerPath).use { container ->
-            deletedFiles.forEach { file ->
-                container.delete(file)
-            }
-            println("after deleting")
-            printContainerTree(container, Path.of(""))
-        }
-
-        ContainerFileSystem.open(containerPath).use { container ->
-            files.forEachIndexed { index, file ->
-                if (!container.exists(file)) {
-                    Files.newInputStream(file).use { input ->
-                        container.openWrite(file).use { output ->
-                            writeInChunks(input, output, seed = index)
-                        }
-                    }
-                }
-                val expectedChecksum = Files.newInputStream(file).use(::sha256)
-                val containerChecksum = container.openRead(file).use(::sha256)
-                assertArrayEquals(expectedChecksum, containerChecksum)
-            }
-            println("after adding files")
-            printContainerTree(container, Path.of(""))
-        }
-
-        ContainerFileSystem.open(containerPath).use { container ->
-            files.forEach { file ->
-                val expectedChecksum = Files.newInputStream(file).use(::sha256)
-                val containerChecksum = container.openRead(file).use(::sha256)
-                assertArrayEquals(expectedChecksum, containerChecksum)
-            }
+            assertEquals(" World", actual)
         }
     }
 
-    private fun requestProjectFiles(): List<Path> {
-        val excludedDirectories = setOf(".git", ".gradle", ".idea", ".kotlin", "build", "gradle", "out")
-        return Files.walk(projectRoot).use { paths ->
-            paths
-                .filter { Files.isRegularFile(it) }
-                .filter { path ->
-                    val relative = projectRoot.relativize(path)
-                    relative.none { component ->
-                        component.toString() in excludedDirectories
-                    }
-                }
+    @Test
+    fun deleteFile() {
+        val containerPath = tempDir.resolve("test.rcfs")
+        val path = Path.of("files/deleted.bin")
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            container.openWrite(path).use {
+                it.write(ByteArray(1024))
+            }
+            assertTrue(container.exists(path))
+            container.delete(path)
+            assertFalse(container.exists(path))
+        }
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            assertFalse(container.exists(path))
+        }
+    }
+
+
+    @Test
+    fun renameFile() {
+        val containerPath = tempDir.resolve("test.rcfs")
+        val oldPath = Path.of("files/old.txt")
+        val newPath = Path.of("files/new.txt")
+        val expected = "Hello world".toByteArray()
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            container.openWrite(oldPath).use {
+                it.write(expected)
+            }
+
+            container.move(oldPath, newPath)
+            assertFalse(container.exists(oldPath))
+            assertTrue(container.exists(newPath))
+        }
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            assertFalse(container.exists(oldPath))
+            assertArrayEquals(expected, container.openRead(newPath).use { it.readBytes() })
+        }
+    }
+
+
+    @Test
+    fun moveFile() {
+        val containerPath = tempDir.resolve("test.rcfs")
+        val source = Path.of("source/file.txt")
+        val destination = Path.of("destination")
+        val expected = "Hello world".toByteArray()
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            container.openWrite(source).use {
+                it.write(expected)
+            }
+            container.move(source, destination)
+            assertFalse(container.exists(source))
+            assertTrue(container.exists(destination))
+        }
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            assertArrayEquals(expected, container.openRead(destination).use { it.readBytes() })
+        }
+    }
+
+    @Test
+    fun deleteRecursively() {
+        val containerPath = tempDir.resolve("test.rcfs")
+        val expected = "Hello world".toByteArray()
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            container.openWrite(Path.of("root.txt")).use {
+                it.write(expected)
+            }
+            container.openWrite(Path.of("sub/one.txt")).use {
+                it.write(expected)
+            }
+            container.openWrite(Path.of("sub/one/two.txt")).use {
+                it.write(expected)
+            }
+            container.openWrite(Path.of("sub/one/two/three.txt")).use {
+                it.write(expected)
+            }
+            container.delete(Path.of("sub"),true)
+            assertFalse(container.exists(Path.of("sub")))
+            assertFalse(container.exists(Path.of("sub/one.txt")))
+            assertFalse(container.exists(Path.of("sub/one/two.txt")))
+            assertFalse(container.exists(Path.of("sub/one/two/three.txt")))
+            assertTrue(container.exists(Path.of("root.txt")))
+        }
+    }
+
+    @Test
+    fun list() {
+        val containerPath = tempDir.resolve("test.rcfs")
+        val expected = "Hello world".toByteArray()
+
+        ContainerFileSystem.open(containerPath).use { container ->
+            container.openWrite(Path.of("root.txt")).use {
+                it.write(expected)
+            }
+            container.openWrite(Path.of("sub/one.txt")).use {
+                it.write(expected)
+            }
+            container.openWrite(Path.of("sub/nested/two.txt")).use {
+                it.write(expected)
+            }
+            container.openWrite(Path.of("sub/nested/three.txt")).use {
+                it.write(expected)
+            }
+
+            val entries = container.list(Path.of("sub"))
+                .sortedBy { it.name }
                 .toList()
+
+            assertEquals(listOf("nested", "one.txt"), entries.map { it.name })
+            assertEquals(EntityType.Directory, entries[0].type)
+            assertEquals(EntityType.File, entries[1].type)
         }
     }
 
-    private fun writeInChunks(input: InputStream, output: OutputStream, seed: Int) {
-        val random = Random(seed)
-        val buffer = ByteArray(8192)
-        while (true) {
-            val chunkSize = random.nextInt(1, buffer.size)
-            val read = input.read(buffer, 0, chunkSize)
-            if (read == -1)
-                break
-            output.write(buffer, 0, read)
-        }
-    }
+    @Test
+    fun getFileInfo() {
+        val containerPath = tempDir.resolve("test.rcfs")
+        val path = Path.of("test.bin")
+        val expected = "Hello world".toByteArray()
 
-    private fun writeInChunks(stream: OutputStream, data: ByteArray, seed: Int) {
-        val random = Random(seed)
-        var offset = 0
-        while (offset < data.size) {
-            val chunkSize = random.nextInt(1, 4096 * 2)
-            val length = minOf(chunkSize, data.size - offset)
-
-            stream.write(data, offset, length)
-            offset += length
-        }
-    }
-
-    private fun sha256(input: InputStream): ByteArray {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(64 * 1024)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0)
-                break
-            digest.update(buffer, 0, read)
-        }
-        return digest.digest()
-    }
-
-    private fun printContainerTree(container: ContainerFileSystem, path: Path, depth: Int = 0) {
-        val indent = "  ".repeat(depth)
-        container.list(path)
-            .sortedBy { it.name }
-            .forEach { entry ->
-                when (entry.type) {
-                    EntityType.Directory -> {
-                        println("$indent ${entry.name}")
-                        printContainerTree(container, path.resolve(entry.name), depth + 1)
-                    }
-
-                    EntityType.File -> {
-                        println("$indent ${entry.name} (${entry.size} bytes)")
-                    }
-
-                    EntityType.None -> {}
-                }
+        ContainerFileSystem.open(containerPath).use { container ->
+            container.openWrite(path).use {
+                it.write(expected)
             }
+
+            val info = container.getInfo(path)
+            assertNotNull(info)
+            assertEquals("test.bin", info.name)
+            assertEquals(EntityType.File, info.type)
+            assertEquals(expected.size.toLong(), info.size)
+        }
     }
 }

@@ -164,6 +164,19 @@ class ContainerFileSystem private constructor(
     }
 
     @Suppress("unused")
+    fun createDirectory(path: Path) {
+        val parent = resolveParent(path)
+        check(exists(path)) {
+            "Already exists"
+        }
+        metadataStorage.create(
+            parentId = parent.id,
+            name = path.name,
+            type = EntityType.Directory
+        )
+    }
+
+    @Suppress("unused")
     fun delete(path: Path, recursive: Boolean = false) {
         val metadata = requireEntry(path)
         if (metadata.type == EntityType.Directory) {
@@ -209,6 +222,12 @@ class ContainerFileSystem private constructor(
                 name = destination.name
             )
         )
+    }
+
+    @Suppress("unused")
+    fun rename(path: Path, newName: String) {
+        val parent = path.parent ?: Path.of("")
+        move(path, parent.resolve(newName))
     }
 
     @Suppress("unused")
