@@ -88,9 +88,10 @@ ContainerFileSystem.open(containerPath).use { container ->
 +--------------------------------------+
 ```
 
-## Thread safety
+## Limitations
 
-A `ContainerFileSystem` is not thread-safe.
+A ContainerFileSystem instance is not thread-safe; concurrent access requires external synchronization.
+Crash recovery and transactional updates are outside the current scope.
 
 ## Requirements
 
